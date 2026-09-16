@@ -18,10 +18,12 @@ static rmt_data_t rmtSymbols[MAX_PULSES];
 // после — обратно на тач. Вызывается из main вокруг каждого радио-действия.
 
 void CC1101Radio::spiToRadio() {
+    SPI.end();   // иначе core 3.x проигнорирует повторный begin с новыми пинами
     SPI.begin(CC1101_SCK, CC1101_MISO, CC1101_MOSI, CC1101_CS);
 }
 
 void CC1101Radio::spiToTouch() {
+    SPI.end();
     SPI.begin(TOUCH_SCK, TOUCH_MISO, TOUCH_MOSI, -1);
     // CS тача управляется библиотекой XPT2046 сама (пин 33)
 }
