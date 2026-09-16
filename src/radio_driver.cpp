@@ -142,15 +142,18 @@ void CC1101Radio::sendPacket(const uint8_t* data, int len, int repeats) {
 // Прозрачный async-режим: GDO0 повторяет демодулированный сигнал (IOCFG0=0x0D,
 // PKTCTRL0=0x32 = без CRC, бесконечная длина, без белила).
 void CC1101Radio::configureAsyncOOK() {
-    rf.setCCMode(false);            // PKTCTRL0=0x32
+    rf.setCCMode(false);            // база async
     rf.setDRate(2.5f);              // 2.5 кБод: T≈400 мкс — PT2262/EV1527 семейство
     rf.setRxBW(270.0f);             // полоса 270 кГц — устойчивость к расстройке
-    rf.setSyncMode(0);              // MDMCFG2 без требования синхрослова
-    rf.SpiWriteReg(CC1101_PKTCTRL0, 0x32);  // white off, без CRC, длина бесконечна
-    // IOCFG0 = 0x2D — ГЛАВНЫЙ фикс: в RX это демодулированные данные на GDO0,
-    // в TX GDO0 становится ВХОДОМ данных в модулятор.
-    // (0x0D — carrier sense, НЕ данные: TX уходил чистой несущей!)
-    rf.SpiWriteReg(CC1101_IOCFG0, 0x2D);
+    rf.setSyncMode(0);              // MDMCFG2: OOK, без синхрослова
+    // PKTCTRL0 = 0xC2: PKT_FORMAT=11 (асинхронный последовательный режим —
+    // TX данные ВХОДЯТ с GDO0, RX данные ВЫХОДЯТ на GDO0), длина бесконечна,
+    // без белила. Прежний 0x32 = PKT_FORMAT=00 (FIFO) — модулятор в TX
+    // брал данные из пустого FIFO, а не с пина: в эфир шла чистая несущая!
+    rf.SpiWriteReg(CC1101_PKTCTRL0, 0xC2);
+    // IOCFG0 = 0x0D: RX — async serial data output; TX — async serial data input
+    // (по даташиту CC1101 и практике Flipper/ESPHome). 0x2D из v1.0.8 был ошибкой.
+    rf.SpiWriteReg(CC1101_IOCFG0, 0x0D);
     rf.SetRx();
 }
 
@@ -269,15 +272,17 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
         }
     }
 
-    // Async TX: PKTCTRL0=0x32, IOCFG0=0x2D (ВХОД данных в TX!), модуляция OOK.
-    // ФИКС v1.0.8: было 0x0D (carrier sense) — модулятор не получал данные,
+    // Async TX: PKTCTRL0=0xC2 (PKT_FORMAT=11 — данные с GDO0 в модулятор),
+    // IOCFG0=0x0D (async data input), модуляция OOK.
+    // ФИКС v1.0.9: было PKT_FORMAT=00 (FIFO) — модулятор читал пустой FIFO,
     // в эфир уходила чистая немодулированная несущая.
     rf.setSidle();
     rf.setCCMode(false);
     rf.setModulation(2);            // ASK/OOK
     rf.setDRate(2.5f);              // как при захвате: T≈400 мкс
     rf.setPA(10);                   // максимальная мощность +10 дБм
-    rf.SpiWriteReg(CC1101_IOCFG0, 0x2D);   // GDO0 = вход данных модулятора в TX
+    rf.SpiWriteReg(CC1101_PKTCTRL0, 0xC2);  // async serial: данные с GDO0
+    rf.SpiWriteReg(CC1101_IOCFG0, 0x0D);   // GDO0 = вход данных модулятора в TX
     rf.SetTx();                     // несущая, ждёт данных с GDO0
     delay(2);
 
