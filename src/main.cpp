@@ -33,7 +33,9 @@ void doSniff() {
     ui.sniffRssi = -999;
     ui.sniffFreq = radio.getFrequency();
 
+    radio.spiToRadio();                          // шина VSPI -> CC1101
     radio.captureAsync(lastCapture, CAPTURE_TIMEOUT_MS);
+    radio.spiToTouch();                          // шина VSPI -> тач
 
     ui.sniffSuccess = (lastCapture.state == CAP_DONE && lastCapture.pulses.size() >= 8);
     ui.sniffPulses = lastCapture.pulses.size();
@@ -83,8 +85,10 @@ void doReplay() {
     Serial.printf("[MAIN] Воспроизведение: %.2f МГц, %u имп.\r\n", s.freqMHz, s.count);
 
     std::vector<uint16_t> pulses(s.pulses, s.pulses + s.count);
+    radio.spiToRadio();                          // шина VSPI -> CC1101
     radio.setFrequency(s.freqMHz);   // перед воспроизведением выставляем частоту
     radio.replay(pulses, s.modulation);
+    radio.spiToTouch();                          // шина VSPI -> тач
 
     ui.replayFlashUntil = millis() + 2000;
 }
@@ -99,14 +103,17 @@ void setup() {
     ui.setup();
     store.begin();
 
-    radio.begin();
+    radio.begin();          // SPI на 18/19/23 (SD-слот), CS=22, GDO0=27
+    radio.spiToTouch();     // сразу возвращаем шину тачу — он нужен для меню
     bool ccOk = radio.detected();
     Serial.printf("[MAIN] CC1101: %s\r\n", ccOk ? "ОК" : "НЕ НАЙДЕН — проверь проводку");
 
     // Если есть сохранённый сигнал — выставим его частоту
     StoredSignal s;
     if (store.load(s) && s.valid) {
+        radio.spiToRadio();
         radio.setFrequency(s.freqMHz);
+        radio.spiToTouch();
         ui.displayFreq = s.freqMHz;
         ui.hasStored = true;
     }

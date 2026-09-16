@@ -53,6 +53,10 @@ public:
 
     bool isInitialized() const { return initialized; }
 
+    // Переключение мультиплексора VSPI: CC1101 (18/19/23) <-> тач (25/32/39)
+    void spiToRadio();
+    void spiToTouch();
+
 private:
     float freqMHz = BARRIER_FREQ_MHZ;
     uint8_t modulation = 2;  // ASK/OOK по умолчанию (шлагбаумы почти все OOK)
