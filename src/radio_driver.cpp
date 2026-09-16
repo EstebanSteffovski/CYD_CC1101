@@ -146,13 +146,10 @@ void CC1101Radio::configureAsyncOOK() {
     rf.setDRate(2.5f);              // 2.5 кБод: T≈400 мкс — PT2262/EV1527 семейство
     rf.setRxBW(270.0f);             // полоса 270 кГц — устойчивость к расстройке
     rf.setSyncMode(0);              // MDMCFG2: OOK, без синхрослова
-    // PKTCTRL0 = 0xC2: PKT_FORMAT=11 (асинхронный последовательный режим —
-    // TX данные ВХОДЯТ с GDO0, RX данные ВЫХОДЯТ на GDO0), длина бесконечна,
-    // без белила. Прежний 0x32 = PKT_FORMAT=00 (FIFO) — модулятор в TX
-    // брал данные из пустого FIFO, а не с пина: в эфир шла чистая несущая!
-    rf.SpiWriteReg(CC1101_PKTCTRL0, 0xC2);
-    // IOCFG0 = 0x0D: RX — async serial data output; TX — async serial data input
-    // (по даташиту CC1101 и практике Flipper/ESPHome). 0x2D из v1.0.8 был ошибкой.
+    // RX-конфигурация: PKTCTRL0=0x32 + IOCFG0=0x0D — ПРОВЕРЕНО, захват работает
+    // (GDO0 выдаёт демодулированные данные как сигнал статуса, независимо от
+    // PKT_FORMAT). 0xC2 (PKT_FORMAT=11) из v1.0.9 ломал RX-захват — откат.
+    rf.SpiWriteReg(CC1101_PKTCTRL0, 0x32);
     rf.SpiWriteReg(CC1101_IOCFG0, 0x0D);
     rf.SetRx();
 }
@@ -272,10 +269,9 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
         }
     }
 
-    // Async TX: PKTCTRL0=0xC2 (PKT_FORMAT=11 — данные с GDO0 в модулятор),
-    // IOCFG0=0x0D (async data input), модуляция OOK.
-    // ФИКС v1.0.9: было PKT_FORMAT=00 (FIFO) — модулятор читал пустой FIFO,
-    // в эфир уходила чистая немодулированная несущая.
+    // TX-конфигурация: PKTCTRL0=0xC2 (PKT_FORMAT=11 — async serial ВХОД данных
+    // с GDO0 в модулятор), IOCFG0=0x0D. RX при этом остаётся на 0x32+0x0D
+    // (см. configureAsyncOOK): там PKT_FORMAT=11 ломал захват.
     rf.setSidle();
     rf.setCCMode(false);
     rf.setModulation(2);            // ASK/OOK
