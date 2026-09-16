@@ -69,16 +69,17 @@ void UIManager::drawMenu() {
 // ================== ЭКРАН СНИФЕРА ==================
 
 void UIManager::drawSniff() {
-    tft.fillScreen(COL_BG);
+    tft.fillScreen(TFT_BLACK);
+    // Вёрстка сжата на 80% (по запросу: съезжала вниз)
     u8g2.setFont(u8g2_font_10x20_t_cyrillic);
     u8g2.setForegroundColor(COL_ACCENT);
-    u8g2.setBackgroundColor(COL_BG);
-    u8g2.setCursor(20, 40);
+    u8g2.setBackgroundColor(TFT_BLACK);
+    u8g2.setCursor(20, 32);
     u8g2.print("РЕЖИМ СНИФЕРА");
 
     u8g2.setFont(u8g2_font_6x12_t_cyrillic);
     u8g2.setForegroundColor(COL_TEXT);
-    u8g2.setCursor(20, 75);
+    u8g2.setCursor(20, 60);
     u8g2.print("Нажми кнопку пульта");
 
     // Таймер
@@ -87,7 +88,7 @@ void UIManager::drawSniff() {
     if (sec > 999) sec = 999;
     char buf[32];
     snprintf(buf, sizeof(buf), "Ожидание: %u с", (unsigned)sec);
-    u8g2.setCursor(20, 100);
+    u8g2.setCursor(20, 80);
     u8g2.print(buf);
 
     // Мигающий индикатор приёма
@@ -96,11 +97,11 @@ void UIManager::drawSniff() {
     if (millis() - lastDot > 400) {
         lastDot = millis();
         dotOn = !dotOn;
-        tft.fillCircle(218, 22, 6, dotOn ? COL_ERR : COL_BG);
+        tft.fillCircle(218, 18, 5, dotOn ? COL_ERR : TFT_BLACK);
     }
 
-    // Кнопка "Стоп"
-    drawButton(BTN_X, 230, BTN_W, BTN_H, "Стоп / Меню", COL_DIM);
+    // Кнопка "Стоп" — поднята (230*0.8 ≈ 184), уменьшена до 80%
+    drawButton(BTN_X, 184, 160, 48, "Стоп / Меню", COL_DIM);
 }
 
 // ================== ЭКРАН РЕЗУЛЬТАТА ==================
@@ -205,8 +206,8 @@ void UIManager::handleTouch(int16_t tx, int16_t ty) {
         }
     }
     else if (currentScreen == SCREEN_SNIFF) {
-        // Кнопка "Стоп" — снифер сам блокирует loop, но если не блокирует — выходим
-        if (tx >= BTN_X && tx <= BTN_X + BTN_W && ty >= 230 && ty <= 230 + BTN_H) {
+        // Кнопка "Стоп" — сжатая вёрстка: Y=184, H=48, W=160
+        if (tx >= BTN_X && tx <= BTN_X + 160 && ty >= 184 && ty <= 184 + 48) {
             gotoMenu();
         }
     }

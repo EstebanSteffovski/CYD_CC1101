@@ -15,7 +15,7 @@
 #include "signal_store.h"
 #include "ui_manager.h"
 
-#define FW_VERSION "v1.0.3"
+#define FW_VERSION "v1.0.4"
 
 // Глобальный объект радио-библиотеки (используется в radio_driver.cpp)
 SmartRC_CC1101& rf = ELECHOUSE_cc1101;
@@ -113,8 +113,10 @@ void setup() {
 
     ui.setup();             // тач поверх шины (SPI тача = тот же объект)
     radio.spiToTouch();     // отдаём шину тачу для меню
-    bool ccOk = radio.detected();
-    Serial.printf("[MAIN] CC1101: %s\r\n", ccOk ? "ОК" : "НЕ НАЙДЕН — проверь проводку");
+    // Радио уже проверено выше (PARTNUM/VERSION до подключения тача).
+    // Повторная проверка здесь не имеет смысла: шина сейчас на таче,
+    // detected() читал бы тач и всегда отвечал бы "НЕ НАЙДЕН".
+    Serial.println("[MAIN] CC1101: ОК (радио инициализировано)");
 
     store.begin();
 
