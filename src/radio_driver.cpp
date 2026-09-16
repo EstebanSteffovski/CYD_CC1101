@@ -142,12 +142,15 @@ void CC1101Radio::sendPacket(const uint8_t* data, int len, int repeats) {
 // Прозрачный async-режим: GDO0 повторяет демодулированный сигнал (IOCFG0=0x0D,
 // PKTCTRL0=0x32 = без CRC, бесконечная длина, без белила).
 void CC1101Radio::configureAsyncOOK() {
-    rf.setCCMode(false);            // IOCFG0=0x0D, PKTCTRL0=0x32
-    rf.setDRate(10.0f);             // 10 кБод — типичный диапазон статики шлагбаумов
+    rf.setCCMode(false);            // PKTCTRL0=0x32
+    rf.setDRate(2.5f);              // 2.5 кБод: T≈400 мкс — PT2262/EV1527 семейство
     rf.setRxBW(270.0f);             // полоса 270 кГц — устойчивость к расстройке
     rf.setSyncMode(0);              // MDMCFG2 без требования синхрослова
     rf.SpiWriteReg(CC1101_PKTCTRL0, 0x32);  // white off, без CRC, длина бесконечна
-    rf.SpiWriteReg(CC1101_IOCFG0, 0x0D);    // GDO0 = демодулированные данные (async)
+    // IOCFG0 = 0x2D — ГЛАВНЫЙ фикс: в RX это демодулированные данные на GDO0,
+    // в TX GDO0 становится ВХОДОМ данных в модулятор.
+    // (0x0D — carrier sense, НЕ данные: TX уходил чистой несущей!)
+    rf.SpiWriteReg(CC1101_IOCFG0, 0x2D);
     rf.SetRx();
 }
 
@@ -266,12 +269,15 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
         }
     }
 
-    // Async TX: PKTCTRL0=0x32, IOCFG0=0x0D (вход данных в TX), модуляция OOK
+    // Async TX: PKTCTRL0=0x32, IOCFG0=0x2D (ВХОД данных в TX!), модуляция OOK.
+    // ФИКС v1.0.8: было 0x0D (carrier sense) — модулятор не получал данные,
+    // в эфир уходила чистая немодулированная несущая.
     rf.setSidle();
     rf.setCCMode(false);
     rf.setModulation(2);            // ASK/OOK
-    rf.setDRate(10.0f);
-    rf.SpiWriteReg(CC1101_IOCFG0, 0x0D);   // в TX — вход данных для модулятора
+    rf.setDRate(2.5f);              // как при захвате: T≈400 мкс
+    rf.setPA(10);                   // максимальная мощность +10 дБм
+    rf.SpiWriteReg(CC1101_IOCFG0, 0x2D);   // GDO0 = вход данных модулятора в TX
     rf.SetTx();                     // несущая, ждёт данных с GDO0
     delay(2);
 
@@ -283,6 +289,11 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
     if (!startLevels.empty() && startIdx < startLevels.size() && startLevels[0] == 0) {
         startIdx = 1;   // начинаем с HIGH
     }
+    // Стартовая LOW-пауза 4 мс + фронт-заглушка 100 мкс (RMT требует duration>0),
+    // затем основная последовательность с HIGH. Приёмник синхронизируется по первому фронту.
+    rmtSymbols[0].level0 = 0;  rmtSymbols[0].duration0 = 4000;
+    rmtSymbols[0].level1 = 1;  rmtSymbols[0].duration1 = 100;
+    nSymbols = 1;
     for (size_t i = startIdx; i + 1 < pulses.size(); i += 2) {
         uint16_t hi = pulses[i];
         uint16_t lo = pulses[i + 1];
@@ -293,7 +304,7 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
         rmtSymbols[nSymbols].level1 = 0;
         rmtSymbols[nSymbols].duration1 = lo;
         nSymbols++;
-        if (nSymbols >= MAX_PULSES) break;
+        if (nSymbols >= MAX_PULSES - 1) break;
     }
 
     rmtInit(CC1101_GDO0, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_2, 1000000);
