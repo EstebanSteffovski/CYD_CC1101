@@ -282,19 +282,16 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
     rf.SetTx();                     // несущая, ждёт данных с GDO0
     delay(2);
 
-    // RMT TX: 1 МГц, 1 тик = 1 мкс
-    // Сигнал уже нормализован при захвате: [0]=HIGH, [1]=LOW, чередование.
-    // Проверим на всякий случай по сохранённым уровням (если есть).
+    // RMT TX: 1 МГц, 1 тик = 1 мкс. Начинаем ПРЯМО с первого захваченного
+    // импульса (он HIGH). До старта несущей нет (OOK без данных = тишина),
+    // так что естественная пауза уже есть — заглушки не нужны: в v1.0.8-13
+    // фронт-заглушка H100 склеивалась с первым битом (H448+100=548 мкс HIGH)
+    // и искажала посылку.
     size_t nSymbols = 0;
     size_t startIdx = 0;
     if (!startLevels.empty() && startIdx < startLevels.size() && startLevels[0] == 0) {
         startIdx = 1;   // начинаем с HIGH
     }
-    // Стартовая LOW-пауза 4 мс + фронт-заглушка 100 мкс (RMT требует duration>0),
-    // затем основная последовательность с HIGH. Приёмник синхронизируется по первому фронту.
-    rmtSymbols[0].level0 = 0;  rmtSymbols[0].duration0 = 4000;
-    rmtSymbols[0].level1 = 1;  rmtSymbols[0].duration1 = 100;
-    nSymbols = 1;
     for (size_t i = startIdx; i + 1 < pulses.size(); i += 2) {
         uint16_t hi = pulses[i];
         uint16_t lo = pulses[i + 1];
@@ -305,7 +302,7 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
         rmtSymbols[nSymbols].level1 = 0;
         rmtSymbols[nSymbols].duration1 = lo;
         nSymbols++;
-        if (nSymbols >= MAX_PULSES - 1) break;
+        if (nSymbols >= MAX_PULSES) break;
     }
 
     rmtInit(CC1101_GDO0, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_2, 1000000);
