@@ -122,10 +122,11 @@ void CC1101Radio::captureAsync(CaptureResult& result, uint32_t timeoutMs) {
     // RMT RX: GDO0 -> RMT. 1 МГц => 1 тик = 1 мкс.
     // 4 блока = 256 символов (2 блоков мало: rmt_receive отвергает конфиг)
     rmtInit(CC1101_GDO0, RMT_RX_MODE, RMT_MEM_NUM_BLOCKS_4, 1000000);
-    // Фильтр глитчей: импульсы короче 20 мкс игнорируются
-    rmtSetRxMinThreshold(CC1101_GDO0, MIN_PULSE_US);
-    // Порог тишины: аппаратный максимум 32767 тиков (15 бит на символ)!
-    // 65000 был invalid argument. 30000 = 30 мс тишины = конец пакета.
+    // Аппаратный фильтр глитчей НЕ используем: на классическом ESP32 фильтр
+    // тактируется от APB 80 МГц с максимумом 255 тиков = 3187 нс (rmt_receive
+    // отвергает большие значения). Глитчи < 20 мкс режем программно при
+    // распаковке (MIN_PULSE_US в config.h).
+    // Порог тишины: максимум 32767 тиков (15 бит на символ). 30000 = 30 мс.
     rmtSetRxMaxThreshold(CC1101_GDO0, 30000);
 
     // ВАЖНО: readSymbols — входной параметр! Сколько символов максимум читать.
@@ -138,12 +139,21 @@ void CC1101Radio::captureAsync(CaptureResult& result, uint32_t timeoutMs) {
 
     if (ok && readSymbols > 0) {
         // Распаковка символов: duration0 (level0), duration1 (level1)
+        // Программный фильтр глитчей: импульсы < MIN_PULSE_US выкидываем,
+        // соседние короткие склеиваем, чтобы не ломать чётность high/low.
         for (size_t i = 0; i < readSymbols && result.pulses.size() < MAX_PULSES; i++) {
-            if (rmtSymbols[i].duration0 > 0) {
-                result.pulses.push_back(rmtSymbols[i].duration0);
-            }
-            if (rmtSymbols[i].duration1 > 0) {
-                result.pulses.push_back(rmtSymbols[i].duration1);
+            uint16_t d0 = rmtSymbols[i].duration0;
+            uint16_t d1 = rmtSymbols[i].duration1;
+            bool valid0 = (d0 >= MIN_PULSE_US);
+            bool valid1 = (d1 >= MIN_PULSE_US);
+            if (valid0 && valid1) {
+                result.pulses.push_back(d0);
+                result.pulses.push_back(d1);
+            } else if (valid0 && result.pulses.size() > 0) {
+                // глитч на low: расширяем предыдущий low-импульс
+                result.pulses.back() += d0;
+            } else if (valid1 && result.pulses.size() > 0) {
+                result.pulses.back() += d1;
             }
         }
         result.state = CAP_DONE;
