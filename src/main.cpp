@@ -15,7 +15,7 @@
 #include "signal_store.h"
 #include "ui_manager.h"
 
-#define FW_VERSION "v1.0.10"
+#define FW_VERSION "v1.0.11"
 
 // Глобальный объект радио-библиотеки (используется в radio_driver.cpp)
 SmartRC_CC1101& rf = ELECHOUSE_cc1101;
@@ -82,18 +82,36 @@ void doSave() {
 }
 
 void doReplay() {
-    StoredSignal s;
-    if (!store.load(s) || !s.valid || s.count == 0) {
-        Serial.println("[MAIN] Нет сохранённого сигнала");
-        return;
-    }
-    Serial.printf("[MAIN] Воспроизведение: %.2f МГц, %u имп.\r\n", s.freqMHz, s.count);
+    // ФИКС: приоритет — СВЕЖИЙ захват из RAM (если есть), иначе NVS.
+    // Раньше replay ВСЕГДА грузил из NVS: нажал «Воспроизвести» без «Записать»
+    // — уходила старая запись (334 имп.), а свежий захват игнорировался!
+    std::vector<uint16_t> pulses;
+    std::vector<uint8_t> levels;
+    float freqMHz;
 
-    std::vector<uint16_t> pulses(s.pulses, s.pulses + s.count);
-    std::vector<uint8_t> levels(s.levels, s.levels + s.count);
+    if (storedSignal.valid && storedSignal.count > 0) {
+        // Свежий захват из RAM (после снифера) — главный кандидат
+        freqMHz = storedSignal.freqMHz;
+        pulses.assign(storedSignal.pulses, storedSignal.pulses + storedSignal.count);
+        levels.assign(storedSignal.levels, storedSignal.levels + storedSignal.count);
+        Serial.printf("[MAIN] Воспроизведение СВЕЖЕГО захвата: %.2f МГц, %u имп.\r\n",
+                      freqMHz, (unsigned)pulses.size());
+    } else {
+        StoredSignal s;
+        if (!store.load(s) || !s.valid || s.count == 0) {
+            Serial.println("[MAIN] Нет сохранённого сигнала");
+            return;
+        }
+        freqMHz = s.freqMHz;
+        pulses.assign(s.pulses, s.pulses + s.count);
+        levels.assign(s.levels, s.levels + s.count);
+        Serial.printf("[MAIN] Воспроизведение ИЗ ПАМЯТИ: %.2f МГц, %u имп.\r\n",
+                      freqMHz, (unsigned)pulses.size());
+    }
+
     radio.spiToRadio();                          // шина VSPI -> CC1101
-    radio.setFrequency(s.freqMHz);   // перед воспроизведением выставляем частоту
-    radio.replay(pulses, s.modulation, levels);
+    radio.setFrequency(freqMHz);
+    radio.replay(pulses, 2 /* OOK */, levels);
     radio.spiToTouch();                          // шина VSPI -> тач
 
     ui.replayFlashUntil = millis() + 2000;
