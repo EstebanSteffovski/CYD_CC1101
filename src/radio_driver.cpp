@@ -311,17 +311,14 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
     rmtInit(CC1101_GDO0, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_2, 1000000);
     rmtSetEOT(CC1101_GDO0, 0);   // после конца — LOW (нет несущей)
 
-    // Отправляем посылку 4 раза с паузой ~15 мс (пульты шлют 3-5 повторов,
-    // приёмник шлагбаума ждёт валидный фрейм, единичная посылка часто теряется)
-    for (int rep = 0; rep < 4; rep++) {
-        rmtWrite(CC1101_GDO0, rmtSymbols, nSymbols, RMT_WAIT_FOR_EVER);
-        if (rep < 3) delay(15);
-    }
+    // ОДНА отправка. У этого шлагбаума каждая посылка — тумблер:
+    // 1-я старт, 2-я стоп и т.д. (проверено пользователем). Повторы запрещены.
+    rmtWrite(CC1101_GDO0, rmtSymbols, nSymbols, RMT_WAIT_FOR_EVER);
 
     rmtDeinit(CC1101_GDO0);
 
     rf.setSidle();
-    Serial.println("[REPLAY] Отправлено x4");
+    Serial.println("[REPLAY] Отправлено x1");
 
     configurePacketMode();
     rf.SetRx();
