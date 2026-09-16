@@ -12,6 +12,7 @@ struct StoredSignal {
     uint8_t modulation = 2;
     uint16_t count = 0;                       // сколько импульсов
     uint16_t pulses[400];                     // до 400 импульсов
+    uint8_t levels[400];                      // уровень каждого импульса (1=HIGH, 0=LOW)
 };
 
 class SignalStore {

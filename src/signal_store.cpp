@@ -20,6 +20,7 @@ bool SignalStore::save(const StoredSignal& s) {
     prefs.putUShort(NVS_KEY_LEN, s.count);
     size_t bytes = s.count * sizeof(uint16_t);
     prefs.putBytes(NVS_KEY_DATA, s.pulses, bytes);
+    prefs.putBytes(NVS_KEY_LEVELS, s.levels, s.count);
     hasAny = true;
     Serial.printf("[NVS] Сохранено: %.2f МГц, %u импульсов\r\n", s.freqMHz, s.count);
     return true;
@@ -34,6 +35,12 @@ bool SignalStore::load(StoredSignal& s) {
     if (s.count > 400) s.count = 400;
     if (s.count > 0) {
         prefs.getBytes(NVS_KEY_DATA, s.pulses, s.count * sizeof(uint16_t));
+        // Уровни: если ключа нет (старая запись) — генерируем чередование
+        if (prefs.isKey(NVS_KEY_LEVELS) && prefs.getBytesLength(NVS_KEY_LEVELS) == s.count) {
+            prefs.getBytes(NVS_KEY_LEVELS, s.levels, s.count);
+        } else {
+            for (size_t i = 0; i < s.count; i++) s.levels[i] = (i % 2 == 0) ? 1 : 0;
+        }
     }
     return true;
 }

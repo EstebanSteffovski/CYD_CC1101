@@ -19,7 +19,8 @@ enum CaptureState {
 
 struct CaptureResult {
     CaptureState state;
-    std::vector<uint16_t> pulses;  // длительности импульсов, мкс (чётный=high, нечётный=low)
+    std::vector<uint16_t> pulses;  // длительности импульсов, мкс
+    std::vector<uint8_t> levels;   // уровень каждого импульса (1=HIGH, 0=LOW)
     float freqMHz;                 // частота, на которой слушали
     int rssi;                      // RSSI в момент захвата
 };
@@ -49,7 +50,8 @@ public:
     void idle();
 
     // Воспроизведение захваченной последовательности импульсов через GDO0 (RMT)
-    void replay(const std::vector<uint16_t>& pulses, uint8_t modulation);
+    void replay(const std::vector<uint16_t>& pulses, uint8_t modulation,
+                const std::vector<uint8_t>& levels = std::vector<uint8_t>());
 
     bool isInitialized() const { return initialized; }
 

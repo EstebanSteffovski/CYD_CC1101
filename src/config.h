@@ -39,3 +39,4 @@
 #define NVS_KEY_LEN       "pulses_len"
 #define NVS_KEY_DATA      "pulses"
 #define NVS_KEY_MOD       "modulation"
+#define NVS_KEY_LEVELS    "levels"

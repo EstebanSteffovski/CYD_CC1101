@@ -12,6 +12,47 @@ CC1101Radio radio;
 // Буферы RMT (максимум импульсов — половина, т.к. 2 значения на символ)
 static rmt_data_t rmtSymbols[MAX_PULSES];
 
+// Уровни последнего захвата — для replay (нормализация фазы)
+static std::vector<uint8_t> startLevels;
+
+// Уровень последнего сохранённого импульса (1=HIGH, 0=LOW); -1 если пусто
+static int lastLevelOf(const CaptureResult& r) {
+    return r.levels.empty() ? -1 : (int)r.levels.back();
+}
+
+// Совпадает ли уровень последнего импульса с заданным
+static bool levelsMatch(const CaptureResult& r, uint8_t level) {
+    return !r.levels.empty() && r.levels.back() == level;
+}
+
+// ===== Дамп захвата для диагностики протокола =====
+static void dumpCapture(const CaptureResult& r) {
+    size_t n = r.pulses.size();
+    if (n == 0) return;
+
+    // Статистика длительностей
+    uint16_t minH = 0xFFFF, maxH = 0, minL = 0xFFFF, maxL = 0;
+    for (size_t i = 0; i < n && i < r.levels.size(); i++) {
+        if (r.levels[i] == 1) {
+            if (r.pulses[i] < minH) minH = r.pulses[i];
+            if (r.pulses[i] > maxH) maxH = r.pulses[i];
+        } else {
+            if (r.pulses[i] < minL) minL = r.pulses[i];
+            if (r.pulses[i] > maxL) maxL = r.pulses[i];
+        }
+    }
+    Serial.printf("[DUMP] HIGH: %u-%u мкс, LOW: %u-%u мкс\r\n",
+                  (unsigned)minH, (unsigned)maxH, (unsigned)minL, (unsigned)maxL);
+
+    // Первые 100 импульсов в формате "H:длительность " / "L:длительность "
+    Serial.print("[DUMP] Импульсы: ");
+    for (size_t i = 0; i < n && i < 100; i++) {
+        Serial.printf("%s%u ", (i < r.levels.size() && r.levels[i] == 0) ? "L" : "H",
+                      (unsigned)r.pulses[i]);
+    }
+    Serial.println();
+}
+
 // ================== МУЛЬТИПЛЕКСОР VSPI ==================
 // CC1101 (18/19/23) и тач (25/32/39) не могут работать одновременно:
 // перед радиооперацией переключаем мультиплексор на радио,
@@ -138,28 +179,65 @@ void CC1101Radio::captureAsync(CaptureResult& result, uint32_t timeoutMs) {
     rmtDeinit(CC1101_GDO0);
 
     if (ok && readSymbols > 0) {
-        // Распаковка символов: duration0 (level0), duration1 (level1)
-        // Программный фильтр глитчей: импульсы < MIN_PULSE_US выкидываем,
-        // соседние короткие склеиваем, чтобы не ломать чётность high/low.
-        for (size_t i = 0; i < readSymbols && result.pulses.size() < MAX_PULSES; i++) {
-            uint16_t d0 = rmtSymbols[i].duration0;
-            uint16_t d1 = rmtSymbols[i].duration1;
-            bool valid0 = (d0 >= MIN_PULSE_US);
-            bool valid1 = (d1 >= MIN_PULSE_US);
-            if (valid0 && valid1) {
-                result.pulses.push_back(d0);
-                result.pulses.push_back(d1);
-            } else if (valid0 && result.pulses.size() > 0) {
-                // глитч на low: расширяем предыдущий low-импульс
-                result.pulses.back() += d0;
-            } else if (valid1 && result.pulses.size() > 0) {
-                result.pulses.back() += d1;
+        // Распаковка с учётом РЕАЛЬНЫХ уровней level0/level1 (v1.0.7).
+        // Раньше предполагали чередование high/low начиная с high — но RMT
+        // пишет фактический уровень пина, и запись могла начаться с LOW
+        // (тишина перед посылкой) => повтор шёл в противофазе.
+        // Храним пары (duration, level), затем нормализуем: посылка
+        // должна начинаться с HIGH-импульса.
+        struct RawPulse { uint16_t dur; uint8_t level; };
+        static std::vector<RawPulse> raw;   // static — не фрагментируем кучу
+        raw.clear();
+        for (size_t i = 0; i < readSymbols; i++) {
+            if (rmtSymbols[i].duration0 > 0)
+                raw.push_back({rmtSymbols[i].duration0, (uint8_t)rmtSymbols[i].level0});
+            if (rmtSymbols[i].duration1 > 0)
+                raw.push_back({rmtSymbols[i].duration1, (uint8_t)rmtSymbols[i].level1});
+        }
+
+        // Программный фильтр глитчей (< MIN_PULSE_US приклеиваем к соседнему
+        // импульсу ТОГО ЖЕ уровня; чередование high/low сохраняется само,
+        // т.к. уровни теперь реальные).
+        for (size_t i = 0; i < raw.size() && result.pulses.size() < MAX_PULSES; i++) {
+            if (raw[i].dur < MIN_PULSE_US) {
+                // глитч: слить с предыдущим импульсом того же уровня
+                if (!result.pulses.empty() && raw[i].level == lastLevelOf(result)) {
+                    // соседний тот же уровень -> расширяем (бывает после склейки)
+                    result.pulses.back() += raw[i].dur;
+                }
+                continue;
+            }
+            // Если предыдущий сохранённый импульс был ТОГО ЖЕ уровня —
+            // склеиваем (между ними был отфильтрованный глитч)
+            if (!result.pulses.empty() && raw[i].level == lastLevelOf(result) &&
+                result.pulses.size() > 0 && levelsMatch(result, raw[i].level)) {
+                result.pulses.back() += raw[i].dur;
+            } else {
+                result.pulses.push_back(raw[i].dur);
+                result.levels.push_back(raw[i].level);
             }
         }
+
+        // Нормализация: посылка должна начинаться с HIGH.
+        // Если первый импульс LOW (была тишина) — отбрасываем ведущие LOW,
+        // иначе replay начнёт с LOW и весь сигнал пойдёт в противофазе.
+        size_t start = 0;
+        if (!result.pulses.empty() && !result.levels.empty() && result.levels[0] == 0) {
+            // ведущие LOW: пропускаем, но если LOW был длинным (пауза) — просто теряем его,
+            // это безопасно: приёмник синхронизируется по первому фронту
+            start = 1;
+            result.pulses.erase(result.pulses.begin());
+            result.levels.erase(result.levels.begin());
+            // после отброса LOW на чётность не проверяем — уровни реальные
+        }
+
         result.state = CAP_DONE;
         result.rssi = readRssi();
         Serial.printf("[SNIF] Захвачено %u имп., RSSI=%d\r\n",
                       (unsigned)result.pulses.size(), result.rssi);
+
+        // ===== ДАМП для диагностики протокола =====
+        dumpCapture(result);
     } else {
         result.state = CAP_TIMEOUT;
         Serial.println("[SNIF] Ничего не поймано");
@@ -174,8 +252,19 @@ void CC1101Radio::captureAsync(CaptureResult& result, uint32_t timeoutMs) {
 
 // Async TX: CC1101 в TX-режиме читает данные С пина GDO0 (IOCFG0=0x0D в TX — вход данных).
 // RMT гонит импульсы на GPIO27 (GDO0) -> CC1101 модулирует ими несущую.
-void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod) {
+void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
+                         const std::vector<uint8_t>& levels) {
     if (pulses.size() < 2) return;
+
+    // Сохраняем уровни для нормализации фазы
+    startLevels = levels;
+    if (startLevels.empty()) {
+        // Нет уровней (старая запись) — считаем чередование с HIGH
+        startLevels.resize(pulses.size());
+        for (size_t i = 0; i < startLevels.size(); i++) {
+            startLevels[i] = (i % 2 == 0) ? 1 : 0;
+        }
+    }
 
     // Async TX: PKTCTRL0=0x32, IOCFG0=0x0D (вход данных в TX), модуляция OOK
     rf.setSidle();
@@ -187,8 +276,14 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod) {
     delay(2);
 
     // RMT TX: 1 МГц, 1 тик = 1 мкс
+    // Сигнал уже нормализован при захвате: [0]=HIGH, [1]=LOW, чередование.
+    // Проверим на всякий случай по сохранённым уровням (если есть).
     size_t nSymbols = 0;
-    for (size_t i = 0; i + 1 < pulses.size(); i += 2) {
+    size_t startIdx = 0;
+    if (!startLevels.empty() && startIdx < startLevels.size() && startLevels[0] == 0) {
+        startIdx = 1;   // начинаем с HIGH
+    }
+    for (size_t i = startIdx; i + 1 < pulses.size(); i += 2) {
         uint16_t hi = pulses[i];
         uint16_t lo = pulses[i + 1];
         if (hi == 0) hi = 1;
@@ -198,15 +293,23 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod) {
         rmtSymbols[nSymbols].level1 = 0;
         rmtSymbols[nSymbols].duration1 = lo;
         nSymbols++;
+        if (nSymbols >= MAX_PULSES) break;
     }
 
     rmtInit(CC1101_GDO0, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_2, 1000000);
     rmtSetEOT(CC1101_GDO0, 0);   // после конца — LOW (нет несущей)
-    rmtWrite(CC1101_GDO0, rmtSymbols, nSymbols, RMT_WAIT_FOR_EVER);
+
+    // Отправляем посылку 4 раза с паузой ~15 мс (пульты шлют 3-5 повторов,
+    // приёмник шлагбаума ждёт валидный фрейм, единичная посылка часто теряется)
+    for (int rep = 0; rep < 4; rep++) {
+        rmtWrite(CC1101_GDO0, rmtSymbols, nSymbols, RMT_WAIT_FOR_EVER);
+        if (rep < 3) delay(15);
+    }
+
     rmtDeinit(CC1101_GDO0);
 
     rf.setSidle();
-    Serial.println("[REPLAY] Отправлено");
+    Serial.println("[REPLAY] Отправлено x4");
 
     configurePacketMode();
     rf.SetRx();

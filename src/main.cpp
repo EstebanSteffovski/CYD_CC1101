@@ -15,7 +15,7 @@
 #include "signal_store.h"
 #include "ui_manager.h"
 
-#define FW_VERSION "v1.0.6"
+#define FW_VERSION "v1.0.7"
 
 // Глобальный объект радио-библиотеки (используется в radio_driver.cpp)
 SmartRC_CC1101& rf = ELECHOUSE_cc1101;
@@ -48,13 +48,18 @@ void doSniff() {
         for (int i = 0; i < ui.previewCount; i++) {
             ui.previewPulses[i] = lastCapture.pulses[i];
         }
-        // Переносим в storedSignal для записи
+        // Переносим в storedSignal для записи (вместе с уровнями)
         storedSignal.valid = true;
         storedSignal.freqMHz = lastCapture.freqMHz;
         storedSignal.modulation = 2;   // OOK
         storedSignal.count = lastCapture.pulses.size();
         for (size_t i = 0; i < storedSignal.count && i < 400; i++) {
             storedSignal.pulses[i] = lastCapture.pulses[i];
+            if (i < lastCapture.levels.size()) {
+                storedSignal.levels[i] = lastCapture.levels[i];
+            } else {
+                storedSignal.levels[i] = (i % 2 == 0) ? 1 : 0;  // fallback
+            }
         }
         Serial.printf("[MAIN] Захват ОК: %u имп., RSSI=%d\r\n", ui.sniffPulses, ui.sniffRssi);
     } else {
@@ -85,9 +90,10 @@ void doReplay() {
     Serial.printf("[MAIN] Воспроизведение: %.2f МГц, %u имп.\r\n", s.freqMHz, s.count);
 
     std::vector<uint16_t> pulses(s.pulses, s.pulses + s.count);
+    std::vector<uint8_t> levels(s.levels, s.levels + s.count);
     radio.spiToRadio();                          // шина VSPI -> CC1101
     radio.setFrequency(s.freqMHz);   // перед воспроизведением выставляем частоту
-    radio.replay(pulses, s.modulation);
+    radio.replay(pulses, s.modulation, levels);
     radio.spiToTouch();                          // шина VSPI -> тач
 
     ui.replayFlashUntil = millis() + 2000;
