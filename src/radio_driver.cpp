@@ -128,8 +128,9 @@ void CC1101Radio::captureAsync(CaptureResult& result, uint32_t timeoutMs) {
     // 65000 был invalid argument. 30000 = 30 мс тишины = конец пакета.
     rmtSetRxMaxThreshold(CC1101_GDO0, 30000);
 
-    size_t numSymbols = MAX_PULSES / 2;   // символов RMT (в каждом 2 импульса)
-    size_t readSymbols = 0;
+    // ВАЖНО: readSymbols — входной параметр! Сколько символов максимум читать.
+    // Баг v1.0.3: передавали 0 -> buffer_size = 0 -> rmt_receive invalid argument.
+    size_t readSymbols = MAX_PULSES / 2;   // символов RMT (в каждом 2 импульса) = 200
 
     bool ok = rmtRead(CC1101_GDO0, rmtSymbols, &readSymbols, timeoutMs);
 
