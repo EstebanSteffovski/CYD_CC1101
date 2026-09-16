@@ -15,7 +15,7 @@
 #include "signal_store.h"
 #include "ui_manager.h"
 
-#define FW_VERSION "v1.0.2"
+#define FW_VERSION "v1.0.3"
 
 // Глобальный объект радио-библиотеки (используется в radio_driver.cpp)
 SmartRC_CC1101& rf = ELECHOUSE_cc1101;
@@ -100,13 +100,23 @@ void setup() {
     delay(300);
     Serial.printf("\r\n=== СНИФЕР ШЛАГБАУМА CYD+CC1101 %s ===\r\n", FW_VERSION);
 
-    ui.setup();
-    store.begin();
-
+    // РАДИО ПЕРВЫМ: оно первым берёт VSPI-шину (тач подключится позже,
+    // его begin(SPI) не сбрасывает пины — мультиплексор остаётся на радио
+    // до первого spiToTouch).
     radio.begin();          // SPI на 18/19/23 (SD-слот), CS=22, GDO0=27
-    radio.spiToTouch();     // сразу возвращаем шину тачу — он нужен для меню
+
+    // Диагностика: читаем статусные регистры напрямую
+    uint8_t partnum = rf.SpiReadStatus(CC1101_PARTNUM);
+    uint8_t version = rf.SpiReadStatus(CC1101_VERSION);
+    Serial.printf("[MAIN] CC1101 PARTNUM=0x%02X VERSION=0x%02X (ожидаются 0x00/0x14)\r\n",
+                  partnum, version);
+
+    ui.setup();             // тач поверх шины (SPI тача = тот же объект)
+    radio.spiToTouch();     // отдаём шину тачу для меню
     bool ccOk = radio.detected();
     Serial.printf("[MAIN] CC1101: %s\r\n", ccOk ? "ОК" : "НЕ НАЙДЕН — проверь проводку");
+
+    store.begin();
 
     // Если есть сохранённый сигнал — выставим его частоту
     StoredSignal s;
