@@ -34,7 +34,8 @@ void CC1101Radio::begin() {
     // Пины задаём ДО Init — библиотека их подхватит
     rf.setSpiPin(CC1101_SCK, CC1101_MISO, CC1101_MOSI, CC1101_CS);
     rf.setGDO0(CC1101_GDO0);
-    rf.Init();                       // SPI.begin + Reset + RegConfig
+    SPI.end();   // тач мог уже владеть шиной — переинициализируем честно
+    rf.Init();   // SPI.begin(SCK,MISO,MOSI,SS) + Reset + RegConfig
     rf.setCCMode(true);              // пакетный режим по умолчанию
     rf.setModulation(modulation);    // 2 = ASK/OOK
     rf.setMHZ(freqMHz);
@@ -119,11 +120,13 @@ void CC1101Radio::captureAsync(CaptureResult& result, uint32_t timeoutMs) {
     delay(5);
 
     // RMT RX: GDO0 -> RMT. 1 МГц => 1 тик = 1 мкс.
-    rmtInit(CC1101_GDO0, RMT_RX_MODE, RMT_MEM_NUM_BLOCKS_2, 1000000);
+    // 4 блока = 256 символов (2 блоков мало: rmt_receive отвергает конфиг)
+    rmtInit(CC1101_GDO0, RMT_RX_MODE, RMT_MEM_NUM_BLOCKS_4, 1000000);
     // Фильтр глитчей: импульсы короче 20 мкс игнорируются
     rmtSetRxMinThreshold(CC1101_GDO0, MIN_PULSE_US);
-    // Порог тишины: > 100 мс без фронтов = конец передачи
-    rmtSetRxMaxThreshold(CC1101_GDO0, 65000);   // тишина 65 мс = конец пакета
+    // Порог тишины: аппаратный максимум 32767 тиков (15 бит на символ)!
+    // 65000 был invalid argument. 30000 = 30 мс тишины = конец пакета.
+    rmtSetRxMaxThreshold(CC1101_GDO0, 30000);
 
     size_t numSymbols = MAX_PULSES / 2;   // символов RMT (в каждом 2 импульса)
     size_t readSymbols = 0;

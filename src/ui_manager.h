@@ -58,7 +58,6 @@ private:
     TFT_eSPI tft;
     U8g2_for_TFT_eSPI u8g2;
     XPT2046_Touchscreen* touch = nullptr;
-    SPIClass* touchSPI = nullptr;
 
     uint8_t currentScreen = SCREEN_MENU;
     bool redraw = true;

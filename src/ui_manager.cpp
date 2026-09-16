@@ -20,11 +20,13 @@ void UIManager::setup() {
 
     u8g2.begin(tft);
 
-    // Тач — VSPI, как в CYD_CAN_SNIFFER (проверено)
-    touchSPI = new SPIClass(VSPI);
-    touchSPI->begin(25, 39, 32, 33);
+    // Тач — на ГЛОБАЛЬНОМ SPI (тот же объект, что и CC1101).
+    // На ESP32 два SPI-периферийных блока (HSPI=дисплей, VSPI=тач/CC1101).
+    // Если дать тачу отдельный SPIClass(VSPI), радио на глобальном SPI
+    // потеряет хост — CC1101 перестанет отвечать. Один объект = честный
+    // мультиплексор end/begin в radio_driver.cpp.
     touch = new XPT2046_Touchscreen(33, 36);
-    touch->begin(*touchSPI);
+    touch->begin(SPI);
     touch->setRotation(0);
 
     drawMenu();
