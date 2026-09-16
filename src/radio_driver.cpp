@@ -269,15 +269,15 @@ void CC1101Radio::replay(const std::vector<uint16_t>& pulses, uint8_t mod,
         }
     }
 
-    // TX-конфигурация: PKTCTRL0=0xC2 (PKT_FORMAT=11 — async serial ВХОД данных
-    // с GDO0 в модулятор), IOCFG0=0x0D. RX при этом остаётся на 0x32+0x0D
-    // (см. configureAsyncOOK): там PKT_FORMAT=11 ломал захват.
+    // TX-конфигурация: setCCMode(false) уже ставит PKTCTRL0=0x32 — это
+    // ASYNC SERIAL MODE (PKT_FORMAT в битах [5:4] = 11, формат 3) — данные
+    // ВХОДЯТ с GDO0 в модулятор. Перезапись 0xC2 в v1.0.9-12 сбрасывала
+    // формат в FIFO — TX шёл чистой несущей. IOCFG0=0x0D: data input в TX.
     rf.setSidle();
     rf.setCCMode(false);
     rf.setModulation(2);            // ASK/OOK
     rf.setDRate(2.5f);              // как при захвате: T≈400 мкс
     rf.setPA(10);                   // максимальная мощность +10 дБм
-    rf.SpiWriteReg(CC1101_PKTCTRL0, 0xC2);  // async serial: данные с GDO0
     rf.SpiWriteReg(CC1101_IOCFG0, 0x0D);   // GDO0 = вход данных модулятора в TX
     rf.SetTx();                     // несущая, ждёт данных с GDO0
     delay(2);

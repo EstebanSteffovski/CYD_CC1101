@@ -15,7 +15,7 @@
 #include "signal_store.h"
 #include "ui_manager.h"
 
-#define FW_VERSION "v1.0.12"
+#define FW_VERSION "v1.0.13"
 
 // Глобальный объект радио-библиотеки (используется в radio_driver.cpp)
 SmartRC_CC1101& rf = ELECHOUSE_cc1101;
